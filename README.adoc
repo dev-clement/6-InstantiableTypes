@@ -1,0 +1,114 @@
+= Instantiable modules
+In this article, we'll see how to expose our QML file as a module itself, it's kind of the same as some previous article, although it want to make a type and be part of a module itself.
+
+:toc:
+:sectnums:
+
+== Introduction
+We'll create a simple `movie` folder, this folder will have it's own `CMakeLists.txt` file to building the `movie` module on its own, this CMakeLists will wrapping around our type. 
+
+NOTE: This `Movie` folder is going to be part of another `CMakeLists` file that will be set in the root directory making it the parent of the `movie` module.
+
+IMPORTANT: The biggest difference between this method and the context object is that, the use of the context object will need to instantiate the object in the C++ side, rather than in this method, we can create an object directly on the QML side now.
+
+== Declaring object on the QML side
+As of now, we made sure of creating our C++ object on the C++ side, and then using the context property, we forward it to the QML side. However, you can also instantiate your C++ object in the QML side using some QML macro such as:
+
+* `Q_PROPERTY`, this macro let you create private attribute with both their getter and their setter as well as their signal upon changes
+* `QML_ELEMENT, this macro tells to the meta object that your object can be used in the QML file directly.
+
+== Adding the class to QML
+NOTE: We can include the class to the QML by 2 methods:
+
+. The first method that is getting the URI name of your module from your `CMakeLists.txt`
+. Second approach is by using the following method: `qmlRegisterType<Movie>("com.franco.movie", 0, 1, "Movie");` 
+
+After one of the both lines, you'll then be able to do the following to your QML application
+```json
+import QtQuick
+import QtQuick.Controls.Material
+import com.franco.movie
+
+Window {
+    width: 640
+    height: 480
+    visible: true
+    title: qsTr("Instantiable Object")
+
+    Movie {
+        id: movieId
+        title: "Titanic"
+        mainCharacter: "Leonardo D"
+    }
+
+    Button {
+        text: "Invoke created object"
+
+        onClicked: {
+            movieId.title = "Fast and Furious"
+            movieId.mainCharacter = "Vin Diesel"
+
+            console.log("New: " + movieId.title + ", " + movieId.mainCharacter)
+        }
+    }
+
+}
+```
+== How to expose your module
+In this part of the article, we'll focusing on using the class we created previously and make it a module by itself.
+
+=== Make a module's folder
+The first thing we need to do is a folder named `movie`, in this folder, there will be a `CMakeLists.txt` file along the `movie` object (both header and source).
+
+IMPORTANT: This `Movie` folder is what we call a module, as this folder is part of the project and it has a `CMakeLists.txt` file used as a `subdirectory` by the root `CMakeLists.txt`
+
+=== Root `CMakeLists.txt`
+So there will be a `CMakeLists.txt` file at the root of where the `Movie` folder is, then this `CMakeLists` will have a call to `add_subdirectory` for the `CMakeLists.txt` that is present in the `Movie` folder. This root `CMakeLists.txt` is basically the cmake that initialize the project that is using the `Movie` subdirectory.
+
+NOTE: Something else to note, is that in QML what we call a `module` is basically a subdirectory in `CMake`.
+
+=== Link against the new module
+In order to link the module to the root `CMakeLists.txt` file, you have to add it as a plugin like this:
+
+```cmake
+...
+target_link_libraries(<applicationName>
+    PRIVATE Qt6::Quick moviesLibplugin
+)
+```
+
+NOTE: The moviesLibplugin is the plugin created by the `CMakeLists.txt` that is present in the subdirectory `movie`.
+
+=== What is a plugin ?
+The link:https://doc.qt.io/qt-6/qqmlengine.html[QML engine] loads Cpp plugins for QML. Such plugins are usually provided in a QML extension module, and can provide types for use by clients in QML documents that import the module. A module requires at least one registered type to be considered valid.
+
+link:https://doc.qt.io/qt-6/qqmlengineextensionplugin.html[QQmlEngineExtensionPlugin] is a plugin interface that lets you create QML extensions that can be loaded dynamically into QML applications. These extensions allow custom QML types to be made available to the QML engine.
+
+In order to write a QML extension plugin:
+
+. Subclass link:https://doc.qt.io/qt-6/qqmlengineextensionplugin.html[QQmlEngineExtensionPlugin] and use the link:https://doc.qt.io/qt-6/qtplugin.html#Q_PLUGIN_METADATA[Q_PLUGIN_METADATA]() macro to register the plugin with the Qt meta object system.
+. Use the link:https://doc.qt.io/qt-6/qqmlintegration-h.html#QML_ELEMENT[QML_ELEMENT] and link:https://doc.qt.io/qt-6/qqmlintegration-h.html#QML_NAMED_ELEMENT[QML_NAMED_ELEMENT]() macros to declare your QML types.
+. Configure your build file
+```cmake
+qt_add_qml_module(<target>
+    URI <my.import.name>
+    VERSION 1.0
+    QML_FILES <app.qml>
+    NO_RESOURCE_TARGET_PATH
+)
+```
+. If you're using qmake, create a link:https://doc.qt.io/qt-6/qtqml-modules-qmldir.html[qmldir file] to describe the plugin. Note that CMake will, by default automatically generate the link:https://doc.qt.io/qt-6/qtqml-modules-qmldir.html[qmldir file]
+
+QML extension plugins are for either application-specific or library-like plugins. Library plugins should limit themselves to registering types, as many manipulation of the engine's root context may cause conflicts or other issues in the library user's code.
+
+NOTE: When using the CMake link:https://doc.qt.io/qt-6/qt-add-qml-module.html[qt_add_qml_module] API, a plugin will be generated automatically for you. It will take care of type registration. You only need to write a custom plugin if you have special requirements, such as registering custom image providers. In that case, pass link:https://doc.qt.io/qt-6/qt-add-qml-module.html#no-generate-plugin-source[NO_GENERATE_PLUGIN_SOURCE] to the qt_add_qml_module call to disable the generation of the default plugin.
+
+If your module is called `my.module`, you would add the forward declaration in global scope:
+```cpp
+void qml_register_types_my_module();
+```
+Then add the following snippet of code in the implementation of any function that is part of the same binary as the registration:
+```cpp
+volatile auto registration = &qml_register_types_my_module;
+Q_UNUSED(registration);
+```
